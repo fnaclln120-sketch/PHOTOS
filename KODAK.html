@@ -1,0 +1,497 @@
+bash
+
+cat > /home/claude/photos-pochettes-firebase.html << 'HTMLEOF'
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Photos Jetables — Gestion Pochettes</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css" />
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+<!-- Firebase -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getFirestore, collection, doc, setDoc, getDoc, getDocs, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyAUzxJ-L-cJ9tgXWav78U7hxPiz-CGN3YU",
+    authDomain: "applicationpochettes.firebaseapp.com",
+    projectId: "applicationpochettes",
+    storageBucket: "applicationpochettes.firebasestorage.app",
+    messagingSenderId: "484494683020",
+    appId: "1:484494683020:web:2608f0488444a0f8f644a9"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const pochettesCol = collection(db, "pochettes");
+
+  // Expose Firebase functions to global scope
+  window._fb = { db, pochettesCol, doc, setDoc, getDoc, getDocs, deleteDoc, onSnapshot, collection };
+
+  // Live sync — toutes les pochettes en temps réel
+  onSnapshot(pochettesCol, (snapshot) => {
+    window._localDB = {};
+    snapshot.forEach(d => { window._localDB[d.id] = d.data(); });
+    if (typeof window.renderList === 'function') window.renderList();
+    if (typeof window.updateSyncStatus === 'function') window.updateSyncStatus('synced');
+  });
+
+  window._fbReady = true;
+  document.dispatchEvent(new Event('fb-ready'));
+</script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #ffffff;
+    --bg-sec: #f5f5f3;
+    --bg-ter: #eeede9;
+    --text: #1a1a18;
+    --text-sec: #6b6b67;
+    --text-ter: #9b9b96;
+    --border: rgba(0,0,0,0.12);
+    --border-md: rgba(0,0,0,0.2);
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+    --font: system-ui, -apple-system, sans-serif;
+    --font-mono: ui-monospace, monospace;
+    --success-bg: #eaf3de; --success-text: #3b6d11;
+    --info-bg: #e6f1fb; --info-text: #185fa5;
+    --danger-bg: #fcebeb; --danger-text: #a32d2d;
+    --warn-bg: #faeeda; --warn-text: #854f0b;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1c1a; --bg-sec: #252523; --bg-ter: #2e2e2b;
+      --text: #f0efea; --text-sec: #a8a8a2; --text-ter: #6b6b67;
+      --border: rgba(255,255,255,0.1); --border-md: rgba(255,255,255,0.18);
+      --success-bg: #173404; --success-text: #c0dd97;
+      --info-bg: #042c53; --info-text: #b5d4f4;
+      --danger-bg: #501313; --danger-text: #f7c1c1;
+      --warn-bg: #412402; --warn-text: #fac775;
+    }
+  }
+
+  body { font-family: var(--font); background: var(--bg-ter); color: var(--text); min-height: 100vh; font-size: 15px; line-height: 1.6; }
+
+  .shell { max-width: 640px; margin: 0 auto; padding: 0 16px 48px; }
+
+  header { padding: 28px 0 20px; border-bottom: 0.5px solid var(--border); margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; }
+  header h1 { font-size: 20px; font-weight: 500; display: flex; align-items: center; gap: 10px; }
+  header p { font-size: 13px; color: var(--text-sec); margin-top: 4px; }
+
+  .sync-badge { font-size: 11px; font-weight: 500; padding: 4px 10px; border-radius: 99px; display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .sync-badge.synced { background: var(--success-bg); color: var(--success-text); }
+  .sync-badge.loading { background: var(--warn-bg); color: var(--warn-text); }
+  .sync-badge.error { background: var(--danger-bg); color: var(--danger-text); }
+
+  .tabs { display: flex; gap: 4px; background: var(--bg-sec); border-radius: var(--radius-md); padding: 4px; margin-bottom: 20px; }
+  .tab { flex: 1; padding: 8px 4px; border: none; background: transparent; border-radius: 6px; font-size: 13px; font-weight: 500; color: var(--text-sec); cursor: pointer; transition: all .15s; display: flex; align-items: center; justify-content: center; gap: 6px; }
+  .tab.active { background: var(--bg); color: var(--text); border: 0.5px solid var(--border); }
+
+  .page { display: none; }
+  .page.active { display: block; }
+
+  .card { background: var(--bg); border: 0.5px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px; }
+  .card-title { font-size: 14px; font-weight: 500; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+
+  .scan-zone { border: 1.5px dashed var(--border-md); border-radius: var(--radius-md); padding: 24px 20px 20px; text-align: center; margin-bottom: 12px; }
+  .scan-zone i { font-size: 44px; color: var(--text-ter); display: block; margin-bottom: 8px; }
+  .scan-zone p { font-size: 13px; color: var(--text-sec); margin-bottom: 16px; }
+  .scan-row { display: flex; gap: 8px; }
+  .scan-row input { flex: 1; font-size: 15px; letter-spacing: 0.5px; font-family: var(--font-mono); }
+
+  video#camera-view { width: 100%; border-radius: var(--radius-md); max-height: 220px; object-fit: cover; display: none; margin-bottom: 12px; }
+
+  label { display: block; font-size: 12px; color: var(--text-sec); margin-bottom: 4px; }
+  input[type=text], input[type=email], input[type=tel], textarea {
+    width: 100%; padding: 9px 12px; border: 0.5px solid var(--border-md); border-radius: var(--radius-md);
+    background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; outline: none; transition: border-color .15s;
+  }
+  input:focus, textarea:focus { border-color: var(--text-sec); }
+
+  .form-group { margin-bottom: 12px; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  button { cursor: pointer; font-family: var(--font); }
+  .btn { padding: 9px 18px; border-radius: var(--radius-md); font-size: 14px; font-weight: 500; border: 0.5px solid var(--border-md); background: transparent; color: var(--text); transition: background .15s; display: inline-flex; align-items: center; gap: 6px; }
+  .btn:hover { background: var(--bg-sec); }
+  .btn-primary { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .btn-primary:hover { opacity: .85; background: var(--text); }
+  .btn-danger { border-color: var(--border); color: var(--danger-text); padding: 6px 10px; font-size: 13px; }
+  .btn-sm { padding: 6px 12px; font-size: 13px; }
+
+  .badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; padding: 3px 8px; border-radius: 99px; }
+  .badge-pending { background: var(--warn-bg); color: var(--warn-text); }
+  .badge-notified { background: var(--info-bg); color: var(--info-text); }
+
+  .alert { border-radius: var(--radius-md); padding: 10px 14px; font-size: 13px; margin-bottom: 12px; display: flex; align-items: flex-start; gap: 8px; }
+  .alert-success { background: var(--success-bg); color: var(--success-text); }
+  .alert-info { background: var(--info-bg); color: var(--info-text); }
+  .alert-danger { background: var(--danger-bg); color: var(--danger-text); }
+  .alert-warn { background: var(--warn-bg); color: var(--warn-text); }
+
+  .metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+  .metric { background: var(--bg-sec); border-radius: var(--radius-md); padding: 14px; text-align: center; }
+  .metric-num { font-size: 28px; font-weight: 500; }
+  .metric-label { font-size: 12px; color: var(--text-sec); margin-top: 2px; }
+
+  .pochette-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 0.5px solid var(--border); }
+  .pochette-row:last-child { border-bottom: none; }
+  .pochette-info { flex: 1; min-width: 0; }
+  .pochette-name { font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .pochette-meta { font-size: 12px; color: var(--text-sec); margin-top: 3px; }
+
+  .mono-pill { font-family: var(--font-mono); font-size: 11px; background: var(--bg-sec); border: 0.5px solid var(--border); border-radius: 4px; padding: 2px 6px; color: var(--text-sec); }
+
+  .empty-state { text-align: center; padding: 32px; color: var(--text-sec); font-size: 14px; }
+  .empty-state i { font-size: 40px; display: block; margin-bottom: 10px; color: var(--text-ter); }
+
+  .tip-box { background: var(--bg-sec); border-radius: var(--radius-md); padding: 14px; font-size: 13px; color: var(--text-sec); line-height: 1.7; margin-top: 12px; }
+  .tip-box a { color: var(--info-text); }
+  .tip-box code { font-family: var(--font-mono); font-size: 12px; background: var(--bg-ter); padding: 1px 4px; border-radius: 3px; color: var(--text); }
+
+  .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 100; align-items: center; justify-content: center; padding: 16px; }
+  .overlay.open { display: flex; }
+  .modal { background: var(--bg); border-radius: var(--radius-xl); border: 0.5px solid var(--border); padding: 24px; width: 100%; max-width: 420px; }
+  .modal-title { font-size: 16px; font-weight: 500; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+  .modal-actions { display: flex; gap: 8px; margin-top: 16px; }
+  .modal-actions .btn-primary { flex: 1; justify-content: center; }
+
+  textarea { resize: vertical; }
+  hr { border: none; border-top: 0.5px solid var(--border); margin: 16px 0; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header>
+    <div>
+      <h1><i class="ti ti-camera" aria-hidden="true"></i> Photos Jetables</h1>
+      <p>Gestion des pochettes — scan, enregistrement &amp; notification client</p>
+    </div>
+    <div id="sync-status" class="sync-badge loading">
+      <i class="ti ti-cloud" aria-hidden="true"></i> Connexion…
+    </div>
+  </header>
+
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('scanner')"><i class="ti ti-scan" aria-hidden="true"></i> Scanner</button>
+    <button class="tab" onclick="switchTab('pochettes')"><i class="ti ti-list" aria-hidden="true"></i> Pochettes</button>
+    <button class="tab" onclick="switchTab('config')"><i class="ti ti-settings" aria-hidden="true"></i> Config.</button>
+  </div>
+
+  <div id="tab-scanner" class="page active">
+    <div class="card">
+      <div class="card-title"><i class="ti ti-barcode" aria-hidden="true"></i> Scanner une pochette</div>
+      <div class="scan-zone">
+        <video id="camera-view" autoplay playsinline></video>
+        <div id="scan-icon-block">
+          <i class="ti ti-scan" aria-hidden="true"></i>
+          <p>Entrez le code barre manuellement ou activez la caméra</p>
+        </div>
+        <div style="display:flex; gap:8px; justify-content:center; margin-bottom:14px;">
+          <button class="btn btn-sm" onclick="toggleCamera()" id="camera-btn"><i class="ti ti-camera" aria-hidden="true"></i> Caméra</button>
+        </div>
+        <div class="scan-row">
+          <input type="text" id="barcode-input" placeholder="Ex : 4012345678901" maxlength="30"
+            onkeydown="if(event.key==='Enter') processBarcode()" autocomplete="off" />
+          <button class="btn btn-primary" onclick="processBarcode()"><i class="ti ti-arrow-right" aria-hidden="true"></i></button>
+        </div>
+      </div>
+      <div id="scan-alert"></div>
+    </div>
+  </div>
+
+  <div id="tab-pochettes" class="page">
+    <div class="metric-grid">
+      <div class="metric"><div class="metric-num" id="m-total">—</div><div class="metric-label">Total</div></div>
+      <div class="metric"><div class="metric-num" id="m-pending">—</div><div class="metric-label">En attente</div></div>
+      <div class="metric"><div class="metric-num" id="m-notified">—</div><div class="metric-label">Notifiés</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><i class="ti ti-package" aria-hidden="true"></i> Toutes les pochettes</div>
+      <div id="pochettes-list"><div class="empty-state"><i class="ti ti-loader" aria-hidden="true"></i>Chargement…</div></div>
+    </div>
+  </div>
+
+  <div id="tab-config" class="page">
+    <div class="card">
+      <div class="card-title"><i class="ti ti-mail" aria-hidden="true"></i> Configuration EmailJS (Gmail)</div>
+      <div class="form-group"><label>Service ID</label><input type="text" id="cfg-service" placeholder="service_xxxxxxx" /></div>
+      <div class="form-group"><label>Template ID</label><input type="text" id="cfg-template" placeholder="template_xxxxxxx" /></div>
+      <div class="form-group"><label>Public Key</label><input type="text" id="cfg-pubkey" placeholder="votre_public_key" /></div>
+      <div class="form-group"><label>Votre adresse Gmail (expéditeur)</label><input type="email" id="cfg-from" placeholder="monmagasin@gmail.com" /></div>
+      <hr>
+      <div class="card-title" style="margin-bottom:12px;"><i class="ti ti-message" aria-hidden="true"></i> Message envoyé au client</div>
+      <div class="form-group"><label>Objet</label><input type="text" id="cfg-subject" value="Vos photos sont arrivées !" /></div>
+      <div class="form-group">
+        <label>Corps du message — utilisez <code>{{prenom}}</code>, <code>{{nom}}</code>, <code>{{barcode}}</code></label>
+        <textarea id="cfg-body" rows="6">Bonjour {{prenom}},
+
+Bonne nouvelle ! Vos photos du film n°{{barcode}} sont arrivées en magasin et sont prêtes à être récupérées.
+
+À bientôt,
+L'équipe du magasin</textarea>
+      </div>
+      <button class="btn btn-primary" onclick="saveConfig()"><i class="ti ti-device-floppy" aria-hidden="true"></i> Sauvegarder</button>
+      <div id="cfg-alert" style="margin-top:12px;"></div>
+      <div class="tip-box">
+        La config EmailJS est sauvegardée <strong>localement</strong> sur chaque PC — chaque poste doit renseigner ses identifiants une fois.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL nouveau client -->
+<div id="modal-new" class="overlay" role="dialog" aria-modal="true">
+  <div class="modal">
+    <div class="modal-title"><i class="ti ti-user-plus" aria-hidden="true"></i> Nouveau dépôt — <span id="modal-barcode-display" style="font-family:monospace; font-size:13px;"></span></div>
+    <div class="form-row">
+      <div class="form-group"><label>Prénom *</label><input type="text" id="f-prenom" placeholder="Marie" /></div>
+      <div class="form-group"><label>Nom *</label><input type="text" id="f-nom" placeholder="Dupont" /></div>
+    </div>
+    <div class="form-group"><label>Email *</label><input type="email" id="f-email" placeholder="marie.dupont@gmail.com" /></div>
+    <div class="form-group"><label>Téléphone</label><input type="tel" id="f-tel" placeholder="0470 00 00 00" /></div>
+    <div id="modal-new-alert"></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="savePochette()"><i class="ti ti-check" aria-hidden="true"></i> Enregistrer</button>
+      <button class="btn" onclick="closeModals()">Annuler</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL photos arrivées -->
+<div id="modal-ready" class="overlay" role="dialog" aria-modal="true">
+  <div class="modal">
+    <div class="modal-title"><i class="ti ti-photo" aria-hidden="true" style="color:var(--success-text);"></i> Photos arrivées en magasin</div>
+    <div id="ready-info" style="margin-bottom:12px;"></div>
+    <div id="modal-ready-alert"></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="sendNotification()"><i class="ti ti-send" aria-hidden="true"></i> Envoyer le mail</button>
+      <button class="btn" onclick="closeModals()">Fermer</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  window._localDB = {};
+  let cfg = JSON.parse(localStorage.getItem('pochette-cfg') || '{}');
+  let currentBarcode = null;
+  let cameraStream = null;
+  let barcodeInterval = null;
+
+  function saveCfg() { localStorage.setItem('pochette-cfg', JSON.stringify(cfg)); }
+
+  function init() {
+    if (cfg.subject) document.getElementById('cfg-subject').value = cfg.subject;
+    if (cfg.body) document.getElementById('cfg-body').value = cfg.body;
+    if (cfg.serviceId) document.getElementById('cfg-service').value = cfg.serviceId;
+    if (cfg.templateId) document.getElementById('cfg-template').value = cfg.templateId;
+    if (cfg.pubKey) document.getElementById('cfg-pubkey').value = cfg.pubKey;
+    if (cfg.from) document.getElementById('cfg-from').value = cfg.from;
+  }
+
+  window.updateSyncStatus = function(state) {
+    const el = document.getElementById('sync-status');
+    if (state === 'synced') {
+      el.className = 'sync-badge synced';
+      el.innerHTML = '<i class="ti ti-cloud-check" aria-hidden="true"></i> Synchronisé';
+    } else if (state === 'error') {
+      el.className = 'sync-badge error';
+      el.innerHTML = '<i class="ti ti-cloud-off" aria-hidden="true"></i> Hors ligne';
+    }
+  };
+
+  function switchTab(t) {
+    const tabs = ['scanner', 'pochettes', 'config'];
+    tabs.forEach((name, i) => {
+      document.querySelectorAll('.tab')[i].classList.toggle('active', name === t);
+      document.getElementById('tab-' + name).classList.toggle('active', name === t);
+    });
+    if (t === 'pochettes') renderList();
+  }
+
+  function showAlert(id, msg, type) {
+    const el = document.getElementById(id);
+    const icons = { success: 'ti-circle-check', info: 'ti-info-circle', danger: 'ti-alert-circle', warn: 'ti-alert-triangle' };
+    el.innerHTML = `<div class="alert alert-${type}"><i class="ti ${icons[type]||'ti-info-circle'}" aria-hidden="true"></i><span>${msg}</span></div>`;
+    if (type !== 'danger') setTimeout(() => el.innerHTML = '', 5000);
+  }
+
+  function processBarcode() {
+    const val = document.getElementById('barcode-input').value.trim();
+    if (!val) { showAlert('scan-alert', 'Veuillez entrer ou scanner un code barre.', 'danger'); return; }
+    currentBarcode = val;
+    document.getElementById('barcode-input').value = '';
+    const p = window._localDB[val];
+    if (p) {
+      if (p.status === 'notified') {
+        showAlert('scan-alert', `Client <strong>${p.prenom} ${p.nom}</strong> déjà notifié le ${p.notifiedAt}.`, 'info');
+      } else {
+        openReadyModal(val);
+      }
+    } else {
+      openNewModal(val);
+    }
+  }
+
+  function openNewModal(barcode) {
+    document.getElementById('modal-barcode-display').textContent = barcode;
+    ['f-prenom','f-nom','f-email','f-tel'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('modal-new-alert').innerHTML = '';
+    document.getElementById('modal-new').classList.add('open');
+    setTimeout(() => document.getElementById('f-prenom').focus(), 100);
+  }
+
+  function openReadyModal(barcode) {
+    const p = window._localDB[barcode];
+    document.getElementById('ready-info').innerHTML = `
+      <div style="background:var(--bg-sec); border-radius:var(--radius-md); padding:14px; font-size:14px;">
+        <div style="font-weight:500; margin-bottom:6px;">${p.prenom} ${p.nom}</div>
+        <div style="color:var(--text-sec);">${p.email}</div>
+        ${p.tel ? `<div style="color:var(--text-sec);">${p.tel}</div>` : ''}
+        <div style="margin-top:10px;"><span class="mono-pill">${barcode}</span></div>
+        <div style="font-size:12px; color:var(--text-sec); margin-top:6px;">Déposé le ${p.createdAt}</div>
+      </div>`;
+    document.getElementById('modal-ready-alert').innerHTML = '';
+    document.getElementById('modal-ready').classList.add('open');
+  }
+
+  function closeModals() {
+    document.querySelectorAll('.overlay').forEach(el => el.classList.remove('open'));
+  }
+
+  document.querySelectorAll('.overlay').forEach(el => {
+    el.addEventListener('click', e => { if (e.target === el) closeModals(); });
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModals(); });
+
+  async function savePochette() {
+    const prenom = document.getElementById('f-prenom').value.trim();
+    const nom = document.getElementById('f-nom').value.trim();
+    const email = document.getElementById('f-email').value.trim();
+    const tel = document.getElementById('f-tel').value.trim();
+    if (!prenom || !nom || !email) { showAlert('modal-new-alert', 'Prénom, nom et email sont obligatoires.', 'danger'); return; }
+
+    const data = { prenom, nom, email, tel, status: 'pending', createdAt: new Date().toLocaleDateString('fr-BE') };
+    try {
+      const { doc, setDoc, pochettesCol } = window._fb;
+      await setDoc(doc(pochettesCol, currentBarcode), data);
+      closeModals();
+      showAlert('scan-alert', `Pochette <strong>${currentBarcode}</strong> enregistrée pour ${prenom} ${nom}.`, 'success');
+    } catch(e) {
+      showAlert('modal-new-alert', 'Erreur Firebase : ' + e.message, 'danger');
+    }
+  }
+
+  async function sendNotification() {
+    const p = window._localDB[currentBarcode];
+    const serviceId = document.getElementById('cfg-service').value.trim();
+    const templateId = document.getElementById('cfg-template').value.trim();
+    const pubKey = document.getElementById('cfg-pubkey').value.trim();
+    if (!serviceId || !templateId || !pubKey) {
+      showAlert('modal-ready-alert', 'Configurez d\'abord EmailJS dans l\'onglet <strong>Config.</strong>', 'danger'); return;
+    }
+    const body = (cfg.body || document.getElementById('cfg-body').value)
+      .replace(/\{\{prenom\}\}/g, p.prenom).replace(/\{\{nom\}\}/g, p.nom).replace(/\{\{barcode\}\}/g, currentBarcode);
+    const subject = cfg.subject || document.getElementById('cfg-subject').value;
+    try {
+      emailjs.init(pubKey);
+      await emailjs.send(serviceId, templateId, { to_email: p.email, to_name: `${p.prenom} ${p.nom}`, subject, message: body, barcode: currentBarcode });
+      const { doc, setDoc, pochettesCol } = window._fb;
+      await setDoc(doc(pochettesCol, currentBarcode), { ...p, status: 'notified', notifiedAt: new Date().toLocaleDateString('fr-BE') });
+      closeModals();
+      showAlert('scan-alert', `Mail envoyé à <strong>${p.email}</strong> avec succès !`, 'success');
+    } catch(err) {
+      showAlert('modal-ready-alert', `Erreur d'envoi : ${err.text || err.message || JSON.stringify(err)}`, 'danger');
+    }
+  }
+
+  function saveConfig() {
+    cfg.serviceId = document.getElementById('cfg-service').value.trim();
+    cfg.templateId = document.getElementById('cfg-template').value.trim();
+    cfg.pubKey = document.getElementById('cfg-pubkey').value.trim();
+    cfg.from = document.getElementById('cfg-from').value.trim();
+    cfg.subject = document.getElementById('cfg-subject').value;
+    cfg.body = document.getElementById('cfg-body').value;
+    saveCfg();
+    showAlert('cfg-alert', 'Configuration sauvegardée.', 'success');
+  }
+
+  window.renderList = function() {
+    const keys = Object.keys(window._localDB);
+    const pending = keys.filter(k => window._localDB[k].status === 'pending').length;
+    const notified = keys.filter(k => window._localDB[k].status === 'notified').length;
+    document.getElementById('m-total').textContent = keys.length;
+    document.getElementById('m-pending').textContent = pending;
+    document.getElementById('m-notified').textContent = notified;
+    const list = document.getElementById('pochettes-list');
+    if (!keys.length) {
+      list.innerHTML = `<div class="empty-state"><i class="ti ti-inbox" aria-hidden="true"></i>Aucune pochette enregistrée.<br>Scannez un code barre pour commencer.</div>`;
+      return;
+    }
+    const sorted = [...keys].sort((a,b) => {
+      if (window._localDB[a].status === 'pending' && window._localDB[b].status !== 'pending') return -1;
+      if (window._localDB[a].status !== 'pending' && window._localDB[b].status === 'pending') return 1;
+      return 0;
+    });
+    list.innerHTML = sorted.map(k => {
+      const p = window._localDB[k];
+      const badge = p.status === 'notified'
+        ? `<span class="badge badge-notified"><i class="ti ti-check" aria-hidden="true"></i> Notifié</span>`
+        : `<span class="badge badge-pending"><i class="ti ti-clock" aria-hidden="true"></i> En attente</span>`;
+      return `<div class="pochette-row">
+        <div class="pochette-info">
+          <div class="pochette-name">${p.prenom} ${p.nom} ${badge}</div>
+          <div class="pochette-meta">${p.email}${p.tel ? ' · '+p.tel : ''}</div>
+          <div class="pochette-meta"><span class="mono-pill">${k}</span> · Déposé le ${p.createdAt}${p.notifiedAt ? ' · Notifié le '+p.notifiedAt : ''}</div>
+        </div>
+        <button class="btn btn-danger" onclick="deletePochette('${k}')" aria-label="Supprimer"><i class="ti ti-trash" aria-hidden="true"></i></button>
+      </div>`;
+    }).join('');
+  };
+
+  async function deletePochette(k) {
+    const p = window._localDB[k];
+    if (!confirm(`Supprimer la pochette ${k} (${p.prenom} ${p.nom}) ?`)) return;
+    try {
+      const { doc, deleteDoc, pochettesCol } = window._fb;
+      await deleteDoc(doc(pochettesCol, k));
+    } catch(e) { alert('Erreur suppression : ' + e.message); }
+  }
+
+  async function toggleCamera() {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(t => t.stop());
+      cameraStream = null; clearInterval(barcodeInterval);
+      document.getElementById('camera-view').style.display = 'none';
+      document.getElementById('scan-icon-block').style.display = 'block';
+      document.getElementById('camera-btn').innerHTML = '<i class="ti ti-camera" aria-hidden="true"></i> Caméra';
+      return;
+    }
+    try {
+      cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      const vid = document.getElementById('camera-view');
+      vid.srcObject = cameraStream; vid.style.display = 'block';
+      document.getElementById('scan-icon-block').style.display = 'none';
+      document.getElementById('camera-btn').innerHTML = '<i class="ti ti-camera-off" aria-hidden="true"></i> Arrêter';
+      if ('BarcodeDetector' in window) {
+        const detector = new BarcodeDetector({ formats: ['ean_13','ean_8','code_128','code_39','qr_code'] });
+        barcodeInterval = setInterval(async () => {
+          try { const codes = await detector.detect(vid); if (codes.length) { document.getElementById('barcode-input').value = codes[0].rawValue; toggleCamera(); processBarcode(); } } catch(e) {}
+        }, 500);
+      } else {
+        showAlert('scan-alert', 'Détection automatique non supportée. Entrez le code manuellement.', 'warn');
+      }
+    } catch(e) { showAlert('scan-alert', 'Impossible d\'accéder à la caméra. Vérifiez les permissions.', 'danger'); }
+  }
+
+  init();
+</script>
+</body>
+</html>
+HTMLEOF
